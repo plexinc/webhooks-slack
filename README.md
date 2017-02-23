@@ -3,7 +3,7 @@ In order to run this app:
 - Install [node.js](https://nodejs.org/en/).
 - Clone the repository.
 - Install dependencies using `npm install`.
-- Make a new app at Heroku, and add the Redis Cloud add-on (free plan) and note the app URL.
+- Make a new app at Heroku, and add the Heroku Redis add-on (free plan) and note the app URL.
 - Add a config var APP_URL (usually {app_name}.herokuapp.com)
 - Make a Slack webhook for a slack-channel and note the URL, add them as config vars named SLACK_URL & SLACK_CHANNEL.
 - Deploy to Heroku.

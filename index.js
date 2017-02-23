@@ -13,7 +13,7 @@ var appURL = process.env.APP_URL;
 
 var slack = new Slack();
 slack.setWebhook(process.env.SLACK_URL);
-var redisClient = redis.createClient(process.env.REDISCLOUD_URL, { return_buffers : true });
+var redisClient = redis.createClient(process.env.REDIS_URL, { return_buffers : true });
 var upload = multer({ storage: multer.memoryStorage() });
 var app = express();
 

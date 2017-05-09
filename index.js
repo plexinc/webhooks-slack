@@ -1,41 +1,161 @@
-var express = require('express')
-  , multer  = require('multer')
-  , redis = require("redis")
-  , lwip = require('lwip')
-  , sha1 = require('sha1')
-  , fs = require('fs')
-  , freegeoip = require('node-freegeoip')
-  , Slack = require('slack-node');
+const express = require('express');
+const freegeoip = require('node-freegeoip');
+const sharp = require('sharp');
+const morgan = require('morgan');
+const multer = require('multer');
+const Redis = require('ioredis');
+const sha1 = require('sha1');
+const Slack = require('slack-node');
+const upload = multer({ storage: multer.memoryStorage() });
 
-// Configuration.
-var channel = process.env.SLACK_CHANNEL;
-var appURL = process.env.APP_URL;
+const SEVEN_DAYS = 7 * 24 * 60 * 60; // in seconds
 
-var slack = new Slack();
+//
+// setup
+
+const channel = process.env.SLACK_CHANNEL;
+const appURL = process.env.APP_URL;
+const redis = new Redis(process.env.REDIS_URL);
+
+//
+// slack
+
+const slack = new Slack();
 slack.setWebhook(process.env.SLACK_URL);
-var redisClient = redis.createClient(process.env.REDIS_URL, { return_buffers : true });
-var upload = multer({ storage: multer.memoryStorage() });
-var app = express();
+
+//
+// express
+
+const app = express();
+const port = process.env.PORT || 11000;
+
+app.use(morgan('dev'));
+app.listen(port, () => {
+  console.log(`Express app running at http://localhost:${port}`);
+});
+
+//
+// routes
+
+app.post('/', upload.single('thumb'), async(req, res, next) => {
+  const payload = JSON.parse(req.body.payload);
+  const isVideo = (payload.Metadata.librarySectionType === 'movie' || payload.Metadata.librarySectionType === 'show');
+  const isAudio = (payload.Metadata.librarySectionType === 'artist');
+  const key = sha1(payload.Server.uuid + payload.Metadata.ratingKey);
+
+  // missing required properties
+  if (!payload.user || !payload.Metadata || !(isAudio || isVideo)) {
+    return res.sendStatus(400);
+  }
+
+  // retrieve cached image
+  let image = await redis.getBuffer(key);
+
+  // save new image
+  if (payload.event === 'media.play' || payload.event === 'media.rate') {
+    if (image) {
+      console.log('[REDIS]', `Using cached image ${key}`);
+    } else if (!image && req.file && req.file.buffer) {
+      console.log('[REDIS]', `Saving new image ${key}`);
+      image = await sharp(req.file.buffer)
+        .resize(75, 75)
+        .background({ r: 0, g: 0, b: 0, alpha: 0 })
+        .embed()
+        .toBuffer();
+
+      redis.set(key, image, 'EX', SEVEN_DAYS);
+    }
+  }
+
+  // post to slack
+  if ((payload.event === 'media.scrobble' && isVideo) || payload.event === 'media.rate') {
+    const location = await getLocation(payload.Player.publicAddress);
+
+    let action;
+
+    if (payload.event === 'media.scrobble') {
+      action = 'played';
+    } else if (payload.rating > 0) {
+      action = 'rated ';
+      for (var i = 0; i < payload.rating / 2; i++) {
+        action += ':star:';
+      }
+    } else {
+      action = 'unrated';
+    }
+
+    if (image) {
+      console.log('[SLACK]', `Sending ${key} with image`);
+      notifySlack(appURL + '/images/' + key, payload, location, action);
+    } else {
+      console.log('[SLACK]', `Sending ${key} without image`);
+      notifySlack(null, payload, location, action);
+    }
+  }
+
+  res.sendStatus(200);
+
+});
+
+app.get('/images/:key', async(req, res, next) => {
+  const exists = await redis.exists(req.params.key);
+
+  if (!exists) {
+    return next();
+  }
+
+  const image = await redis.getBuffer(req.params.key);
+  sharp(image).jpeg().pipe(res);
+});
+
+//
+// error handlers
+
+app.use((req, res, next) => {
+  const err = new Error('Not Found');
+  err.status = 404;
+  next(err);
+});
+
+app.use((err, req, res, next) => {
+  res.status(err.status || 500);
+  res.send(err.message);
+});
+
+//
+// helpers
+
+function getLocation(ip) {
+  return new Promise((resolve, reject) => {
+    freegeoip.getLocation(ip, function (err, location) {
+      if (err) {
+        return reject(err);
+      }
+      return resolve(location);
+    });
+  });
+}
 
 function formatTitle(metadata) {
   if (metadata.grandparentTitle) {
     return metadata.grandparentTitle;
   } else {
-    var ret = metadata.title;
+    let ret = metadata.title;
     if (metadata.year) {
-      ret += ' (' + metadata.year + ')';
+      ret += ` (${metadata.year})`;
     }
     return ret;
   }
 }
 
 function formatSubtitle(metadata) {
-  var ret = '';
+  let ret = '';
+
   if (metadata.grandparentTitle) {
-    if (metadata.type == 'track') {
+    if (metadata.type === 'track') {
       ret = metadata.parentTitle;
     } else if (metadata.index && metadata.parentIndex) {
-      ret = "S" + metadata.parentIndex + " E" + metadata.index;
+      ret = `S${metadata.parentIndex} E${metadata.index}`;
     } else if (metadata.originallyAvailableAt) {
       ret = metadata.originallyAvailableAt;
     }
@@ -43,7 +163,7 @@ function formatSubtitle(metadata) {
     if (metadata.title) {
       ret += ' - ' + metadata.title;
     }
-  } else if (metadata.type == 'movie') {
+  } else if (metadata.type === 'movie') {
     ret = metadata.tagline;
   }
 
@@ -51,95 +171,25 @@ function formatSubtitle(metadata) {
 }
 
 function notifySlack(imageUrl, payload, location, action) {
-  var locationText = '';
+  let locationText = '';
+
   if (location) {
-    locationText = ' near ' + location.city + ', ' + (location.country_code == 'US' ? location.region_name : location.country_name);
+    const state = location.country_code === 'US' ? location.region_name : location.country_name;
+    locationText = `near ${location.city}, ${state}`;
   }
 
   slack.webhook({
-    channel: channel,
-    username: "Plex",
-    icon_emoji: ":plex:",
-    attachments: [
-      {
-        fallback: "Required plain-text summary of the attachment.",
-        color: "#a67a2d",
-        title: formatTitle(payload.Metadata),
-        text: formatSubtitle(payload.Metadata),
-        thumb_url: imageUrl,
-        footer: action + " by " + payload.Account.title + " on " + payload.Player.title + " from " + payload.Server.title + locationText,
-        footer_icon: payload.Account.thumb
-      }
-    ]
-  }, function(err, response) {});
+    channel,
+    username: 'Plex',
+    icon_emoji: ':plex:',
+    attachments: [{
+      fallback: 'Required plain-text summary of the attachment.',
+      color: '#a67a2d',
+      title: formatTitle(payload.Metadata),
+      text: formatSubtitle(payload.Metadata),
+      thumb_url: imageUrl,
+      footer: `${action} by ${payload.Account.title} on ${payload.Player.title} from ${payload.Server.title} ${locationText}`,
+      footer_icon: payload.Account.thumb
+    }]
+  }, () => {});
 }
-
-app.post('/', upload.single('thumb'), function (req, res, next) {
-  var payload = JSON.parse(req.body.payload);
-  var isVideo = (payload.Metadata.librarySectionType == "movie" || payload.Metadata.librarySectionType == "show");
-  var isAudio = (payload.Metadata.librarySectionType == "artist");
-
-  if (payload.user == true && payload.Metadata && (isAudio || isVideo)) {
-    var key = sha1(payload.Server.uuid + payload.Metadata.guid);
-
-    if (payload.event == "media.play" || payload.event == "media.rate") {
-      // Save the image.
-      if (req.file && req.file.buffer) {
-        lwip.open(req.file.buffer, 'jpg', function (err, image) {
-          image.contain(75, 75, 'white', function (err, smallerImage) {
-            smallerImage.toBuffer('jpg', function (err, buffer) {
-              redisClient.setex(key, 7 * 24 * 60 * 60, buffer);
-            });
-          });
-        });
-      }
-    }
-
-    if ((payload.event == "media.scrobble" && isVideo) || payload.event == "media.rate") {
-      // Geolocate player.
-      freegeoip.getLocation(payload.Player.publicAddress, function(err, location) {
-
-        var action;
-        if (payload.event == "media.scrobble") {
-          action = "played";
-        } else {
-          if (payload.rating > 0) {
-            action = "rated ";
-            for (var i = 0; i < payload.rating / 2; i++)
-              action += ":star:";
-          } else {
-            action = "unrated";
-          }
-        }
-
-        // Send the event to Slack.
-        redisClient.get(key, function(err, reply) {
-          if (reply) {
-            notifySlack(appURL + '/images/' + key, payload, location, action);
-          } else {
-            notifySlack(null, payload, location, action);
-          }
-        });
-      });
-    }
-  }
-
-  res.sendStatus(200);
-});
-
-app.get('/images/:key',function(req, res, next) {
-  redisClient.get(req.params.key, function(err,value) {
-    if (err) {
-      next(err);
-    } else {
-      if (!value) {
-        next();
-      } else {
-        res.setHeader('Content-Type','image/jpeg');
-        res.end(value);
-      }
-    }
-  });
-});
-
-app.listen(process.env.PORT || 11000);

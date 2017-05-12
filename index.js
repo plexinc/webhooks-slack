@@ -59,7 +59,7 @@ app.post('/', upload.single('thumb'), async(req, res, next) => {
       console.log('[REDIS]', `Saving new image ${key}`);
       image = await sharp(req.file.buffer)
         .resize(75, 75)
-        .background({ r: 0, g: 0, b: 0, alpha: 0 })
+        .background('white')
         .embed()
         .toBuffer();
 

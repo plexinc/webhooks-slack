@@ -16,6 +16,9 @@
     },
     "APP_URL": {
       "description": "URL of this App ({app_name}.herokuapp.com)"
+    },
+    "IPSTACK_KEY": {
+      "description": "ipstack.com API key"
     }
   }
 }

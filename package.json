@@ -13,7 +13,8 @@
     "ioredis": "^2.5.0",
     "morgan": "^1.8.1",
     "multer": "^1.2.1",
-    "node-freegeoip": "0.0.1",
+    "request": "^2.87.0",
+    "request-promise-native": "^1.0.5",
     "sha1": "^1.1.1",
     "sharp": "^0.17.3",
     "slack-node": "^0.1.8"

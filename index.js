@@ -1,9 +1,9 @@
 const express = require('express');
-const freegeoip = require('node-freegeoip');
 const sharp = require('sharp');
 const morgan = require('morgan');
 const multer = require('multer');
 const Redis = require('ioredis');
+const request = require('request-promise-native');
 const sha1 = require('sha1');
 const Slack = require('slack-node');
 const upload = multer({ storage: multer.memoryStorage() });
@@ -126,14 +126,7 @@ app.use((err, req, res, next) => {
 // helpers
 
 function getLocation(ip) {
-  return new Promise((resolve, reject) => {
-    freegeoip.getLocation(ip, function (err, location) {
-      if (err) {
-        return reject(err);
-      }
-      return resolve(location);
-    });
-  });
+  return request.get(`http://api.ipstack.com/${ip}?access_key=${process.env.IPSTACK_KEY}`, { json: true });
 }
 
 function formatTitle(metadata) {

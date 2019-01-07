@@ -1,9 +1,10 @@
 In order to run this app:
  
 - Install [node.js](https://nodejs.org/en/).
+- Install [yarn](https://yarnpkg.com/en/docs/install).
 - Sign up for a free [ipstack API key](https://ipstack.com/signup/free).
 - Clone the repository.
-- Install dependencies using `npm install`.
+- Install dependencies using `yarn`.
 - Make a new app at Heroku, and add the Heroku Redis add-on (free plan) and note the app URL.
 - Add a config var APP_URL (usually {app_name}.herokuapp.com)
 - Make a Slack webhook for a slack-channel and note the URL, add them as config vars named SLACK_URL & SLACK_CHANNEL.

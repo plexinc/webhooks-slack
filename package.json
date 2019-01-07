@@ -1,16 +1,18 @@
 {
   "name": "plex-notifications",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "debug": "nodemon index.js",
+    "lint": "eslint ."
   },
   "engines": {
-    "node": "8.11"
+    "node": ">=8.11"
   },
   "dependencies": {
     "express": "^4.14.0",
-    "ioredis": "^2.5.0",
+    "ioredis": "^4.3.0",
     "morgan": "^1.8.1",
     "multer": "^1.2.1",
     "request": "^2.87.0",
@@ -20,6 +22,7 @@
     "slack-node": "^0.1.8"
   },
   "devDependencies": {
-    "eslint": "^3.19.0"
+    "eslint": "^5.12.0",
+    "nodemon": "^1.18.9"
   }
 }

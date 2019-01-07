@@ -37,7 +37,7 @@ app.listen(port, () => {
 //
 // routes
 
-app.post('/', upload.single('thumb'), async(req, res, next) => {
+app.post('/', upload.single('thumb'), async (req, res, next) => {
   const payload = JSON.parse(req.body.payload);
   const isVideo = (payload.Metadata.librarySectionType === 'movie' || payload.Metadata.librarySectionType === 'show');
   const isAudio = (payload.Metadata.librarySectionType === 'artist');
@@ -112,7 +112,7 @@ app.post('/', upload.single('thumb'), async(req, res, next) => {
 
 });
 
-app.get('/images/:key', async(req, res, next) => {
+app.get('/images/:key', async (req, res, next) => {
   const exists = await redis.exists(req.params.key);
 
   if (!exists) {

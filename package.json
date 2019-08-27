@@ -22,7 +22,7 @@
     "slack-node": "^0.1.8"
   },
   "devDependencies": {
-    "eslint": "^6.2.0",
+    "eslint": "^6.2.2",
     "nodemon": "^1.19.1"
   }
 }

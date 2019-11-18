@@ -8,8 +8,9 @@
     "lint": "eslint ."
   },
   "engines": {
-    "node": "10.16.x"
+    "node": "^10"
   },
+  "engineStrict" : true,
   "dependencies": {
     "express": "^4.17.1",
     "ioredis": "^4.14.0",

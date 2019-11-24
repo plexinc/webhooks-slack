@@ -39,8 +39,9 @@ app.listen(port, () => {
 
 app.post('/', upload.single('thumb'), async (req, res, next) => {
   const payload = JSON.parse(req.body.payload);
-  const isVideo = (payload.Metadata.librarySectionType === 'movie' || payload.Metadata.librarySectionType === 'show');
-  const isAudio = (payload.Metadata.librarySectionType === 'artist');
+
+  const isVideo = (['movie', 'episode'].includes(payload.Metadata.type));
+  const isAudio = (payload.Metadata.type === 'track');
   const key = sha1(payload.Server.uuid + payload.Metadata.ratingKey);
 
   // missing required properties

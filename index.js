@@ -6,9 +6,22 @@ const Redis = require('ioredis');
 const request = require('request-promise-native');
 const sha1 = require('sha1');
 const Slack = require('slack-node');
+const get = require('lodash.get');
 const upload = multer({ storage: multer.memoryStorage() });
 
 const SEVEN_DAYS = 7 * 24 * 60 * 60; // in seconds
+
+const EVENT_SCROBBLE = 'media.scrobble';
+const EVENT_RATE = 'media.rate';
+const EVENT_PLAY = 'media.play';
+const EVENT_NEW = 'library.new';
+let eventWhitelist = [EVENT_SCROBBLE, EVENT_RATE, EVENT_NEW];
+if (process.env.EVENT_WHITELIST) {
+  eventWhitelist = process.env.EVENT_WHITELIST.split(',').map((str) =>
+    str.trim()
+  );
+}
+eventWhitelist.push(EVENT_PLAY); // images are saved on play for later use, notification not sent to slack on play
 
 //
 // setup
@@ -31,21 +44,34 @@ const port = process.env.PORT || 11000;
 
 app.use(morgan('dev'));
 app.listen(port, () => {
-  console.log(`Express app running at http://localhost:${port}`);
+  console.log(`Express app running at ${port}`);
 });
 
 //
 // routes
 
 app.post('/', upload.single('thumb'), async (req, res, next) => {
+  console.log(req.body.payload);
   const payload = JSON.parse(req.body.payload);
-
-  const isVideo = (['movie', 'episode'].includes(payload.Metadata.type));
-  const isAudio = (payload.Metadata.type === 'track');
-  const key = sha1(payload.Server.uuid + payload.Metadata.ratingKey);
+  const {
+    Metadata: metadata,
+    Server: server,
+    Player: player,
+    event,
+    thumb,
+    rating
+  } = payload || {};
+  const type = get(metadata, 'type');
+  const isVideo = ['movie', 'episode', 'show'].includes(type);
+  const isAudio = type === 'track';
+  const key = sha1(get(server, 'uuid') + get(metadata, 'ratingKey'));
+  const isScrobble = event === EVENT_SCROBBLE;
+  const isRate = event === EVENT_RATE;
+  const isPlay = event === EVENT_PLAY;
+  const isNew = event === EVENT_NEW;
 
   // missing required properties
-  if (!payload.user || !payload.Metadata || !(isAudio || isVideo)) {
+  if (!metadata || !(isAudio || isVideo) || !eventWhitelist.includes(event)) {
     return res.sendStatus(400);
   }
 
@@ -53,20 +79,21 @@ app.post('/', upload.single('thumb'), async (req, res, next) => {
   let image = await redis.getBuffer(key);
 
   // save new image
-  if (payload.event === 'media.play' || payload.event === 'media.rate') {
+  if (isPlay || isRate || isNew) {
     if (image) {
       console.log('[REDIS]', `Using cached image ${key}`);
     } else {
       let buffer;
-      if (req.file && req.file.buffer) {
-        buffer = req.file.buffer;
-      } else if (payload.thumb) {
-        console.log('[REDIS]', `Retrieving image from  ${payload.thumb}`);
+      if (get(req, 'file.buffer')) {
+        buffer = get(req, 'file.buffer');
+      } else if (thumb) {
+        console.log('[REDIS]', `Retrieving image from ${thumb}`);
         buffer = await request.get({
-          uri: payload.thumb,
+          uri: thumb,
           encoding: null
         });
       }
+
       if (buffer) {
         image = await sharp(buffer)
           .resize({
@@ -84,20 +111,24 @@ app.post('/', upload.single('thumb'), async (req, res, next) => {
   }
 
   // post to slack
-  if ((payload.event === 'media.scrobble' && isVideo) || payload.event === 'media.rate') {
-    const location = await getLocation(payload.Player.publicAddress);
+  if ((isScrobble && isVideo) || isRate || isNew) {
+    const location = await getLocation(get(player, 'publicAddress'));
 
     let action;
 
-    if (payload.event === 'media.scrobble') {
+    if (isScrobble) {
       action = 'played';
-    } else if (payload.rating > 0) {
-      action = 'rated ';
-      for (var i = 0; i < payload.rating / 2; i++) {
-        action += ':star:';
+    } else if (isRate) {
+      if (rating > 0) {
+        action = 'rated ';
+        for (var i = 0; i < rating / 2; i++) {
+          action += ':star:';
+        }
+      } else {
+        action = 'unrated';
       }
-    } else {
-      action = 'unrated';
+    } else if (isNew) {
+      action = 'added';
     }
 
     if (image) {
@@ -110,7 +141,6 @@ app.post('/', upload.single('thumb'), async (req, res, next) => {
   }
 
   res.sendStatus(200);
-
 });
 
 app.get('/images/:key', async (req, res, next) => {
@@ -142,7 +172,10 @@ app.use((err, req, res, next) => {
 // helpers
 
 function getLocation(ip) {
-  return request.get(`http://api.ipstack.com/${ip}?access_key=${process.env.IPSTACK_KEY}`, { json: true });
+  return request.get(
+    `http://api.ipstack.com/${ip}?access_key=${process.env.IPSTACK_KEY}`,
+    { json: true }
+  );
 }
 
 function formatTitle(metadata) {
@@ -175,30 +208,56 @@ function formatSubtitle(metadata) {
   } else if (metadata.type === 'movie') {
     ret = metadata.tagline;
   }
+  if (metadata.summary) {
+    ret += `\n${metadata.summary}`;
+  }
 
   return ret;
 }
 
 function notifySlack(imageUrl, payload, location, action) {
   let locationText = '';
-
   if (location) {
-    const state = location.country_code === 'US' ? location.region_name : location.country_name;
-    locationText = `near ${location.city}, ${state}`;
+    const state =
+      location.country_code === 'US' ?
+        location.region_name :
+        location.country_name;
+    if (state) {
+      locationText = `near ${location.city}, ${state}`;
+    }
   }
 
-  slack.webhook({
-    channel,
-    username: 'Plex',
-    icon_emoji: ':plex:',
-    attachments: [{
-      fallback: 'Required plain-text summary of the attachment.',
-      color: '#a67a2d',
-      title: formatTitle(payload.Metadata),
-      text: formatSubtitle(payload.Metadata),
-      thumb_url: imageUrl,
-      footer: `${action} by ${payload.Account.title} on ${payload.Player.title} from ${payload.Server.title} ${locationText}`,
-      footer_icon: payload.Account.thumb
-    }]
-  }, () => {});
+  const title = formatTitle(payload.Metadata);
+  let footer = `${action} by ${get(payload, 'Account.title')}`;
+  const player = get(payload, 'Player.title');
+  if (player) {
+    footer += ` on ${payload.Player.title}`;
+  }
+  const server = get(payload, 'Server.title');
+  if (server) {
+    footer += ` from ${payload.Server.title}`;
+  }
+  if (locationText) {
+    footer += ` ${locationText}`;
+  }
+
+  slack.webhook(
+    {
+      channel,
+      username: 'Plex',
+      icon_emoji: ':plex:',
+      attachments: [
+        {
+          fallback: title,
+          color: '#e5a00d',
+          title,
+          text: formatSubtitle(payload.Metadata),
+          thumb_url: imageUrl,
+          footer,
+          footer_icon: payload.Account.thumb
+        }
+      ]
+    },
+    () => {}
+  );
 }

@@ -17,8 +17,9 @@ Alternatively, deploy straight to Heroku now:
 
 You'll be asked to complete these config vars
 ```
-SLACK_URL      # your slack webhook URL
-SLACK_CHANNEL  # the slack #channel-name to post messages
-APP_URL        # the App URL ({app_name}.herokuapp.com)
-IPSTACK_KEY    # your ipstack API key
+SLACK_URL       # your slack webhook URL
+SLACK_CHANNEL   # the slack #channel-name to post messages
+APP_URL         # the App URL ({app_name}.herokuapp.com)
+IPSTACK_KEY     # your ipstack API key
+EVENT_WHITELIST # whitelist of plex events to notify slack about (ex. \"media.scrobble,media.rate,library.new\") note: you must enable push notifications in plex (settings > general) for library.new events to be triggered
 ```

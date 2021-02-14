@@ -8,12 +8,13 @@
     "lint": "eslint ."
   },
   "engines": {
-    "node": "^10"
+    "node": ">=10"
   },
-  "engineStrict" : true,
+  "engineStrict": true,
   "dependencies": {
     "express": "^4.17.1",
     "ioredis": "^4.14.0",
+    "lodash.get": "^4.4.2",
     "morgan": "^1.8.1",
     "multer": "^1.4.2",
     "request": "^2.87.0",

@@ -4,9 +4,7 @@
   "repository": "https://github.com/plexinc/webhooks-slack",
   "logo": "https://www.plex.tv/wp-content/themes/plex/img/plex-logo@2x.png",
   "keywords": ["node", "redis"],
-  "addons": [
-    {"plan": "heroku-redis:hobby-dev"}
-  ],
+  "addons": [{ "plan": "heroku-redis:hobby-dev" }],
   "env": {
     "SLACK_URL": {
       "description": "Slack webhook URL"
@@ -19,6 +17,9 @@
     },
     "IPSTACK_KEY": {
       "description": "ipstack.com API key"
+    },
+    "EVENT_WHITELIST": {
+      "description": "Whitelist of plex events to notify slack about (ex. \"media.scrobble,media.rate,library.new\""
     }
   }
 }

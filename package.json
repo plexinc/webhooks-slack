@@ -19,7 +19,7 @@
     "request": "^2.87.0",
     "request-promise-native": "^1.0.7",
     "sha1": "^1.1.1",
-    "sharp": "^0.23.0",
+    "sharp": "^0.30.5",
     "slack-node": "^0.1.8"
   },
   "devDependencies": {

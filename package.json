@@ -12,7 +12,7 @@
   },
   "engineStrict" : true,
   "dependencies": {
-    "express": "^4.17.1",
+    "express": "^4.17.3",
     "ioredis": "^4.14.0",
     "morgan": "^1.8.1",
     "multer": "^1.4.2",
